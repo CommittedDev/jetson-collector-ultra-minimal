@@ -58,7 +58,9 @@ All settings via environment variables in `.env`:
 
 Local files: `camera_1_20251224_143052.jpg`, `camera_2_20251224_143052.jpg`
 
-Server upload: `{capture_id}_container.jpg`, `{capture_id}_screen.jpg`
+Server upload: `{capture_id}_camera_1.jpg`, `{capture_id}_camera_2.jpg`
+
+S3 storage: `{device_id}/{date}/{capture_id}/camera_1_20251224_143052.jpg`
 
 ## Architecture
 

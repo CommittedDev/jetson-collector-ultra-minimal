@@ -376,15 +376,8 @@ class SyncManager:
                         filepath = self.storage.get_image_path(filename)
                         if filepath.exists():
                             # Server expects: {capture_id}_{type}.{ext}
-                            # Map camera_1 -> container, camera_2 -> screen
-                            if cam_key == 'camera_1':
-                                img_type = 'container'
-                            elif cam_key == 'camera_2':
-                                img_type = 'screen'
-                            else:
-                                img_type = cam_key
-
-                            server_filename = f"{capture['id']}_{img_type}.jpg"
+                            # Send as camera_1, camera_2, etc.
+                            server_filename = f"{capture['id']}_{cam_key}.jpg"
 
                             f = open(filepath, 'rb')
                             files_to_close.append(f)
