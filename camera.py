@@ -17,16 +17,25 @@ def calculate_sharpness(image: np.ndarray) -> float:
     Calculate image sharpness using Laplacian variance.
     Higher values = sharper image.
 
+    Normalized by resolution so scores are comparable across
+    different image sizes. Reference: VGA (640x480 = 307200 pixels).
+
     Args:
         image: BGR image array
 
     Returns:
-        Laplacian variance (sharpness score)
+        Normalized Laplacian variance (sharpness score)
     """
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     laplacian = cv2.Laplacian(gray, cv2.CV_64F)
     variance = laplacian.var()
-    return float(variance)
+
+    # Normalize by resolution (reference: VGA 640x480)
+    pixels = image.shape[0] * image.shape[1]
+    reference_pixels = 640 * 480
+    scale_factor = pixels / reference_pixels
+
+    return float(variance * scale_factor)
 
 
 def discover_cameras() -> List[str]:

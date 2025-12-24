@@ -10,10 +10,22 @@ import sys
 
 
 def calculate_sharpness(image):
-    """Calculate Laplacian variance (sharpness score)."""
+    """
+    Calculate Laplacian variance (sharpness score).
+
+    Normalized by resolution so scores are comparable across
+    different image sizes. Reference: VGA (640x480 = 307200 pixels).
+    """
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     laplacian = cv2.Laplacian(gray, cv2.CV_64F)
-    return laplacian.var()
+    variance = laplacian.var()
+
+    # Normalize by resolution (reference: VGA 640x480)
+    pixels = image.shape[0] * image.shape[1]
+    reference_pixels = 640 * 480
+    scale_factor = pixels / reference_pixels
+
+    return variance * scale_factor
 
 
 def list_cameras():
