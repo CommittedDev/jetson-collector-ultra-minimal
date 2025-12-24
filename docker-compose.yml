@@ -1,0 +1,48 @@
+# Docker Compose for Ultra-Minimal Collector
+# OPTIONAL: For future Docker deployment if needed
+# Primary deployment uses native Python + systemd
+
+version: '3.8'
+
+services:
+  collector:
+    build: .
+    image: collector-ultra-minimal:latest
+    container_name: jetson-collector-ultra
+    restart: unless-stopped
+
+    # NVIDIA runtime for GPU access
+    runtime: nvidia
+
+    environment:
+      - CAPTURE_INTERVAL_SECONDS=${CAPTURE_INTERVAL_SECONDS:-10}
+      - BATCH_SIZE=${BATCH_SIZE:-20}
+      - DEVICE_ID=${DEVICE_ID:-}
+      - SERVER_URL=${SERVER_URL:?SERVER_URL is required}
+      - API_KEY=${API_KEY:?API_KEY is required}
+      - BURST_FRAMES=${BURST_FRAMES:-5}
+      - SHARPNESS_THRESHOLD=${SHARPNESS_THRESHOLD:-100.0}
+      - STORAGE_PATH=/data/captures
+      - MAX_STORAGE_GB=${MAX_STORAGE_GB:-10.0}
+      - SYNC_INTERVAL_SECONDS=${SYNC_INTERVAL_SECONDS:-60}
+      - MIN_CAMERAS=${MIN_CAMERAS:-2}
+      - NVIDIA_VISIBLE_DEVICES=all
+
+    volumes:
+      # Persistent storage for images and queue
+      - collector-data:/data/captures
+      # Mount /dev for camera auto-discovery
+      - /dev:/dev
+
+    # Privileged for camera access
+    privileged: true
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  collector-data:
+    driver: local
