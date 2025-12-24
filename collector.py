@@ -28,7 +28,7 @@ def get_config():
         'api_key': os.environ.get('API_KEY', ''),
         'burst_frames': int(os.environ.get('BURST_FRAMES', '5')),
         'sharpness_threshold': float(os.environ.get('SHARPNESS_THRESHOLD', '100.0')),
-        'storage_path': os.environ.get('STORAGE_PATH', '/data/captures'),
+        'storage_path': os.environ.get('STORAGE_PATH', './data/captures'),
         'max_storage_gb': float(os.environ.get('MAX_STORAGE_GB', '10.0')),
         'sync_interval': int(os.environ.get('SYNC_INTERVAL_SECONDS', '60')),
         'min_cameras': int(os.environ.get('MIN_CAMERAS', '2')),

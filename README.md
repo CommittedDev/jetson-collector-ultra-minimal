@@ -51,6 +51,7 @@ All settings via environment variables in `.env`:
 | `MIN_CAMERAS` | 2 | Minimum cameras required |
 | `MAX_STORAGE_GB` | 10.0 | Local storage limit |
 | `SYNC_INTERVAL_SECONDS` | 60 | Sync check interval |
+| `STORAGE_PATH` | ./data/captures | Local storage directory |
 
 **No camera device configuration needed** - cameras are auto-discovered!
 

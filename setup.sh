@@ -48,14 +48,8 @@ pip install -r requirements.txt
 # Create data directory
 echo ""
 echo -e "${GREEN}[4/5] Creating data directory...${NC}"
-if sudo mkdir -p /data/captures; then
-    sudo chown "$USER:$USER" /data/captures 2>/dev/null || true
-    echo "Created /data/captures"
-else
-    # Fallback to local directory
-    mkdir -p ./data/captures
-    echo "Created ./data/captures (fallback)"
-fi
+mkdir -p ./data/captures
+echo "Created ./data/captures"
 
 # Copy .env template
 echo ""
