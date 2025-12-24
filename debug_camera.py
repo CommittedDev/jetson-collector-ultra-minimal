@@ -167,15 +167,15 @@ def main():
         # Draw info on frame
         display = frame.copy()
 
-        # Sharpness indicator - adjusted thresholds based on real-world testing
-        color = (0, 255, 0) if sharpness >= 50 else (0, 255, 255) if sharpness >= 30 else (0, 0, 255)
+        # Sharpness indicator - normalized thresholds for any resolution
+        color = (0, 255, 0) if sharpness >= 250 else (0, 255, 255) if sharpness >= 150 else (0, 0, 255)
         cv2.putText(display, f"Sharpness: {sharpness:.1f}", (10, 30),
                     cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
 
         # Quality assessment
-        if sharpness >= 50:
+        if sharpness >= 250:
             quality = "GOOD"
-        elif sharpness >= 30:
+        elif sharpness >= 150:
             quality = "OK"
         else:
             quality = "BLURRY"
