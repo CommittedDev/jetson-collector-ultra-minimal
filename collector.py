@@ -16,6 +16,7 @@ from datetime import datetime
 
 from camera import MultiCamera
 from storage import Storage, SyncManager
+from heartbeat import HeartbeatManager
 
 
 def get_config():
@@ -32,6 +33,10 @@ def get_config():
         'max_storage_gb': float(os.environ.get('MAX_STORAGE_GB', '10.0')),
         'sync_interval': int(os.environ.get('SYNC_INTERVAL_SECONDS', '60')),
         'min_cameras': int(os.environ.get('MIN_CAMERAS', '2')),
+        # Cronitor heartbeat (optional)
+        'cronitor_api_key': os.environ.get('CRONITOR_API_KEY', ''),
+        'cronitor_monitor_key': os.environ.get('CRONITOR_MONITOR_KEY', ''),
+        'heartbeat_interval': int(os.environ.get('HEARTBEAT_INTERVAL_SECONDS', '60')),
     }
 
 
@@ -68,6 +73,7 @@ class UltraMinimalCollector:
         self.camera = None
         self.storage = None
         self.sync_manager = None
+        self.heartbeat_manager = None
         self._running = False
         self._capture_count = 0
 
@@ -116,6 +122,22 @@ class UltraMinimalCollector:
         )
         self.sync_manager.start()
 
+        # Initialize heartbeat manager (optional - only if Cronitor config present)
+        if self.config['cronitor_api_key'] and self.config['cronitor_monitor_key']:
+            logging.info("Initializing heartbeat manager...")
+            self.heartbeat_manager = HeartbeatManager(
+                cronitor_api_key=self.config['cronitor_api_key'],
+                monitor_key=self.config['cronitor_monitor_key'],
+                device_id=self.config['device_id'],
+                server_url=self.config['server_url'],
+                storage=self.storage,
+                sync_manager=self.sync_manager,
+                interval=self.config['heartbeat_interval']
+            )
+            self.heartbeat_manager.start()
+        else:
+            logging.info("Heartbeat disabled (CRONITOR_API_KEY/CRONITOR_MONITOR_KEY not set)")
+
         self._running = True
         logging.info("=" * 60)
         logging.info("Collector started successfully!")
@@ -126,6 +148,8 @@ class UltraMinimalCollector:
         logging.info("Stopping collector...")
         self._running = False
 
+        if self.heartbeat_manager:
+            self.heartbeat_manager.stop()
         if self.sync_manager:
             self.sync_manager.stop()
         if self.camera:
@@ -163,6 +187,14 @@ class UltraMinimalCollector:
             if image is not None:
                 images[cam_idx] = image
                 sharpness[cam_idx] = sharp
+
+            # Update heartbeat with camera status
+            if self.heartbeat_manager:
+                self.heartbeat_manager.update_camera_status(
+                    camera_idx=cam_idx,
+                    ok=(image is not None),
+                    sharpness=sharp
+                )
 
         # Log capture results
         status_parts = []
