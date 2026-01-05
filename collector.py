@@ -15,6 +15,37 @@ import logging
 from datetime import datetime
 
 from camera import MultiCamera
+
+
+def sd_notify(message: str):
+    """Send notification to systemd (if running under systemd)."""
+    notify_socket = os.environ.get('NOTIFY_SOCKET')
+    if not notify_socket:
+        return False
+
+    try:
+        if notify_socket.startswith('@'):
+            notify_socket = '\0' + notify_socket[1:]
+
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+        sock.connect(notify_socket)
+        sock.sendall(message.encode())
+        sock.close()
+        return True
+    except Exception:
+        return False
+
+
+def sd_notify_ready():
+    """Tell systemd the service is ready."""
+    sd_notify('READY=1')
+
+
+def sd_notify_watchdog():
+    """Send watchdog keep-alive to systemd."""
+    sd_notify('WATCHDOG=1')
+
+
 from storage import Storage, SyncManager
 from heartbeat import HeartbeatManager
 
@@ -143,6 +174,9 @@ class UltraMinimalCollector:
         logging.info("Collector started successfully!")
         logging.info("=" * 60)
 
+        # Notify systemd we're ready
+        sd_notify_ready()
+
     def stop(self):
         """Cleanup resources."""
         logging.info("Stopping collector...")
@@ -166,6 +200,9 @@ class UltraMinimalCollector:
                 self._capture_cycle()
             except Exception as e:
                 logging.error(f"Capture error: {e}")
+
+            # Notify systemd watchdog we're still alive
+            sd_notify_watchdog()
 
             # Sleep until next capture
             for _ in range(self.config['capture_interval']):
