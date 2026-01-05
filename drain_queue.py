@@ -229,18 +229,14 @@ def drain_queue(base_path: Path, server_url: str, api_key: str, batch_size: int 
 
             # Save queue after each batch (resume-friendly)
             save_queue(base_path, queue)
-        else:
-            print("FAILED")
-            failed += len(captures)
-            # Remove failed items from queue to avoid infinite loop
-            for path in valid_paths:
-                if path in queue:
-                    queue.remove(path)
-            save_queue(base_path, queue)
 
-        # Small delay between batches
-        if queue:
+            # Small delay between batches
             time.sleep(0.5)
+        else:
+            print("FAILED - retrying in 5s...")
+            failed += 1
+            # Keep in queue for retry, wait before next attempt
+            time.sleep(5)
 
     elapsed = time.time() - start_time
 
