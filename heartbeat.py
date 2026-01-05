@@ -195,25 +195,21 @@ class HeartbeatManager:
         Returns:
             True if successful
         """
-        # Build Cronitor URL with params
-        params = {
-            'state': state,
-            'host': socket.gethostname(),
-            'message': json.dumps(health, separators=(',', ':'))  # Compact JSON
-        }
+        # Build Cronitor URL with params (using list of tuples for multiple metric params)
+        params = [
+            ('state', state),
+            ('host', socket.gethostname()),
+            ('message', json.dumps(health, separators=(',', ':')))  # Compact JSON
+        ]
 
-        # Add metrics
-        metrics = []
-        metrics.append(f"count:pending:{health['storage']['pending']}")
-        metrics.append(f"count:synced:{health['storage']['synced']}")
+        # Add metrics (format: metric_name:value, each as separate param)
+        params.append(('metric', f"pending:{health['storage']['pending']}"))
+        params.append(('metric', f"synced:{health['storage']['synced']}"))
 
         # Count camera failures
         camera_failures = sum(1 for cam in health['cameras'].values() if not cam['ok'])
         if camera_failures > 0:
-            metrics.append(f"error_count:camera_failures:{camera_failures}")
-
-        if metrics:
-            params['metric'] = ','.join(metrics)
+            params.append(('metric', f"camera_failures:{camera_failures}"))
 
         url = f"{self.CRONITOR_BASE_URL}/{self.cronitor_api_key}/{self.monitor_key}"
 
