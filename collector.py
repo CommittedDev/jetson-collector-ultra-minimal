@@ -68,6 +68,8 @@ def get_config():
         'cronitor_api_key': os.environ.get('CRONITOR_API_KEY', ''),
         'cronitor_monitor_key': os.environ.get('CRONITOR_MONITOR_KEY', ''),
         'heartbeat_interval': int(os.environ.get('HEARTBEAT_INTERVAL_SECONDS', '60')),
+        # Retention policy
+        'retention_days': int(os.environ.get('RETENTION_DAYS', '3')),
     }
 
 
@@ -149,7 +151,8 @@ class UltraMinimalCollector:
             server_url=self.config['server_url'],
             api_key=self.config['api_key'],
             batch_size=self.config['batch_size'],
-            sync_interval=self.config['sync_interval']
+            sync_interval=self.config['sync_interval'],
+            retention_days=self.config['retention_days']
         )
         self.sync_manager.start()
 

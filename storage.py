@@ -222,6 +222,7 @@ class Storage:
 
                     if meta['id'] in capture_ids:
                         meta['synced'] = True
+                        meta['synced_at'] = datetime.now().isoformat()
                         with open(metadata_path, 'w') as f:
                             json.dump(meta, f, indent=2)
                         paths_to_remove.append(metadata_path)
@@ -251,6 +252,81 @@ class Storage:
             'storage_path': str(self.base_path)
         }
 
+    def cleanup_old_synced(self, retention_days: int = 3) -> int:
+        """
+        Delete synced captures older than retention_days.
+
+        Args:
+            retention_days: Days to keep synced captures (0 = keep forever)
+
+        Returns:
+            Number of captures deleted
+        """
+        if retention_days <= 0:
+            return 0
+
+        from datetime import timedelta
+        cutoff = datetime.now() - timedelta(days=retention_days)
+        deleted_count = 0
+
+        with self._lock:
+            # Scan all metadata files (not just queue - queue only has unsynced)
+            for filename in list(self.metadata_dir.iterdir()):
+                if not filename.suffix == '.json':
+                    continue
+
+                try:
+                    with open(filename, 'r') as f:
+                        meta = json.load(f)
+
+                    # Only delete synced captures
+                    if not meta.get('synced', False):
+                        continue
+
+                    # Check sync timestamp (or capture timestamp as fallback)
+                    sync_time_str = meta.get('synced_at') or meta.get('timestamp')
+                    if not sync_time_str:
+                        continue
+
+                    # Parse timestamp
+                    try:
+                        sync_time = datetime.fromisoformat(sync_time_str.replace('Z', '+00:00'))
+                        # Remove timezone info for comparison
+                        if sync_time.tzinfo:
+                            sync_time = sync_time.replace(tzinfo=None)
+                    except ValueError:
+                        continue
+
+                    # Skip if not old enough
+                    if sync_time > cutoff:
+                        continue
+
+                    # Delete image files
+                    for cam_key, img_filename in meta.get('images', {}).items():
+                        img_path = self.images_dir / img_filename
+                        if img_path.exists():
+                            try:
+                                img_path.unlink()
+                            except Exception as e:
+                                logging.warning(f"[Storage] Failed to delete {img_path}: {e}")
+
+                    # Delete metadata file
+                    try:
+                        filename.unlink()
+                        deleted_count += 1
+                    except Exception as e:
+                        logging.warning(f"[Storage] Failed to delete {filename}: {e}")
+
+                except (json.JSONDecodeError, KeyError) as e:
+                    logging.warning(f"[Storage] Error reading {filename}: {e}")
+                except Exception as e:
+                    logging.warning(f"[Storage] Cleanup error for {filename}: {e}")
+
+        if deleted_count > 0:
+            logging.info(f"[Storage] Cleaned up {deleted_count} old synced captures (>{retention_days} days)")
+
+        return deleted_count
+
 
 class SyncManager:
     """
@@ -270,7 +346,8 @@ class SyncManager:
         batch_size: int = 20,
         sync_interval: int = 60,
         timeout: int = 60,
-        max_retries: int = 3
+        max_retries: int = 3,
+        retention_days: int = 3
     ):
         self.storage = storage
         # Ensure URL ends with batch endpoint
@@ -284,11 +361,13 @@ class SyncManager:
         self.sync_interval = sync_interval
         self.timeout = timeout
         self.max_retries = max_retries
+        self.retention_days = retention_days
 
         self._running = False
         self._thread: Optional[threading.Thread] = None
         self._last_sync: Optional[datetime] = None
         self._consecutive_failures = 0
+        self._cleanup_counter = 0  # Run cleanup every N sync cycles
 
     def start(self):
         """Start background sync thread."""
@@ -319,7 +398,14 @@ class SyncManager:
 
                 # Sync if we have captures
                 if pending > 0:
-                    self._sync_batch()
+                    uploaded, _ = self._sync_batch()
+
+                    # Run cleanup periodically after successful syncs
+                    if uploaded > 0 and self.retention_days > 0:
+                        self._cleanup_counter += 1
+                        if self._cleanup_counter >= 10:  # Every 10 sync cycles
+                            self.storage.cleanup_old_synced(self.retention_days)
+                            self._cleanup_counter = 0
 
             except Exception as e:
                 logging.error(f"[Sync] Loop error: {e}")
