@@ -345,6 +345,7 @@ class SyncManager:
         api_key: str,
         batch_size: int = 20,
         sync_interval: int = 60,
+        catchup_delay: int = 2,
         timeout: int = 60,
         max_retries: int = 3,
         retention_days: int = 3
@@ -358,7 +359,8 @@ class SyncManager:
             self.server_url = base_url
         self.api_key = api_key
         self.batch_size = batch_size
-        self.sync_interval = sync_interval
+        self.sync_interval = sync_interval  # Idle interval when queue empty
+        self.catchup_delay = catchup_delay  # Delay between batches when catching up
         self.timeout = timeout
         self.max_retries = max_retries
         self.retention_days = retention_days
@@ -411,11 +413,19 @@ class SyncManager:
                 logging.error(f"[Sync] Loop error: {e}")
                 self._consecutive_failures += 1
 
-            # Calculate sleep time with exponential backoff on failures
-            sleep_time = self.sync_interval
+            # Determine sleep time based on queue state
+            remaining = self.storage.get_pending_count()
+
             if self._consecutive_failures > 0:
-                sleep_time = min(sleep_time * (2 ** self._consecutive_failures), 600)
+                # Exponential backoff on failures
+                sleep_time = min(self.sync_interval * (2 ** self._consecutive_failures), 600)
                 logging.info(f"[Sync] Backoff: sleeping {sleep_time}s")
+            elif remaining > 0:
+                # Queue has items - use short catchup delay
+                sleep_time = self.catchup_delay
+            else:
+                # Queue empty - use idle interval
+                sleep_time = self.sync_interval
 
             # Sleep in small increments to allow stopping
             for _ in range(int(sleep_time)):

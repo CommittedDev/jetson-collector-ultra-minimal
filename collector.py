@@ -62,7 +62,8 @@ def get_config():
         'sharpness_threshold': float(os.environ.get('SHARPNESS_THRESHOLD', '250.0')),
         'storage_path': os.environ.get('STORAGE_PATH', './data/captures'),
         'max_storage_gb': float(os.environ.get('MAX_STORAGE_GB', '10.0')),
-        'sync_interval': int(os.environ.get('SYNC_INTERVAL_SECONDS', '60')),
+        'sync_interval': int(os.environ.get('SYNC_IDLE_INTERVAL_SECONDS', '60')),
+        'catchup_delay': int(os.environ.get('SYNC_CATCHUP_DELAY_SECONDS', '2')),
         'min_cameras': int(os.environ.get('MIN_CAMERAS', '2')),
         # Cronitor heartbeat (optional)
         'cronitor_api_key': os.environ.get('CRONITOR_API_KEY', ''),
@@ -120,6 +121,8 @@ class UltraMinimalCollector:
         logging.info(f"Burst frames: {self.config['burst_frames']}")
         logging.info(f"Sharpness threshold: {self.config['sharpness_threshold']}")
         logging.info(f"Batch size: {self.config['batch_size']}")
+        logging.info(f"Sync idle interval: {self.config['sync_interval']}s")
+        logging.info(f"Sync catchup delay: {self.config['catchup_delay']}s")
         logging.info(f"Storage path: {self.config['storage_path']}")
         logging.info("=" * 60)
 
@@ -152,6 +155,7 @@ class UltraMinimalCollector:
             api_key=self.config['api_key'],
             batch_size=self.config['batch_size'],
             sync_interval=self.config['sync_interval'],
+            catchup_delay=self.config['catchup_delay'],
             retention_days=self.config['retention_days']
         )
         self.sync_manager.start()
