@@ -34,8 +34,12 @@ app = Flask(__name__)
 # Global state
 cameras = []
 resolutions = []
+capture_resolution = (1280, 720)  # Default preview resolution
+max_resolutions = []  # Store max resolution per camera for full-res mode
+device_paths = []  # Store device paths for reinitialization
 running = True
 snapshot_count = 0
+full_res_mode = False
 
 
 HTML_TEMPLATE = """
@@ -59,6 +63,20 @@ HTML_TEMPLATE = """
         .info {
             color: #888;
             margin-bottom: 20px;
+        }
+        .mode-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: bold;
+            margin-left: 10px;
+        }
+        .mode-preview {
+            background: #2196F3;
+        }
+        .mode-fullres {
+            background: #ff9800;
         }
         .stream-container {
             display: inline-block;
@@ -88,6 +106,16 @@ HTML_TEMPLATE = """
         button:hover {
             background: #45a049;
         }
+        button.secondary {
+            background: #666;
+        }
+        button.secondary:hover {
+            background: #777;
+        }
+        button:disabled {
+            background: #444;
+            cursor: wait;
+        }
         .status {
             margin-top: 15px;
             color: #888;
@@ -96,25 +124,61 @@ HTML_TEMPLATE = """
     </style>
 </head>
 <body>
-    <h1>Camera Alignment Tool</h1>
+    <h1>Camera Alignment Tool
+        <span class="mode-badge" id="modeBadge">PREVIEW 720p</span>
+    </h1>
     <div class="info">
-        Camera 1: {{ res1 }} | Camera 2: {{ res2 }}
+        Camera 1: {{ max_res1 }} | Camera 2: {{ max_res2 }}
+        <br><small>Current capture: <span id="currentRes">1280x720</span></small>
     </div>
     <div class="stream-container">
-        <img src="/stream" alt="Camera Feed">
+        <img src="/stream" alt="Camera Feed" id="streamImg">
     </div>
     <div class="controls">
-        <button onclick="snapshot()">Save Snapshot</button>
+        <button onclick="snapshot()">Save Snapshot (Full Res)</button>
+        <button onclick="toggleResolution()" id="resToggle" class="secondary">Switch to Full Resolution</button>
     </div>
     <div class="status" id="status"></div>
 
     <script>
+        let isFullRes = false;
+
         function snapshot() {
+            document.getElementById('status').innerText = 'Capturing...';
             fetch('/snapshot')
                 .then(r => r.json())
                 .then(data => {
                     document.getElementById('status').innerText =
                         data.success ? 'Saved: ' + data.filename : 'Error: ' + data.error;
+                });
+        }
+
+        function toggleResolution() {
+            const btn = document.getElementById('resToggle');
+            const badge = document.getElementById('modeBadge');
+            const currentRes = document.getElementById('currentRes');
+            const img = document.getElementById('streamImg');
+
+            btn.disabled = true;
+            btn.innerText = 'Switching...';
+            document.getElementById('status').innerText = 'Reinitializing cameras...';
+
+            fetch('/toggle-resolution')
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success) {
+                        isFullRes = data.full_res;
+                        btn.innerText = isFullRes ? 'Switch to Preview (720p)' : 'Switch to Full Resolution';
+                        badge.innerText = isFullRes ? 'FULL RES ~2fps' : 'PREVIEW 720p';
+                        badge.className = 'mode-badge ' + (isFullRes ? 'mode-fullres' : 'mode-preview');
+                        currentRes.innerText = data.resolution;
+                        // Force stream reload
+                        img.src = '/stream?' + new Date().getTime();
+                        document.getElementById('status').innerText = 'Resolution changed to ' + data.resolution;
+                    } else {
+                        document.getElementById('status').innerText = 'Error: ' + data.error;
+                    }
+                    btn.disabled = false;
                 });
         }
     </script>
@@ -203,17 +267,9 @@ def generate_frames():
     """Generator for MJPEG stream."""
     global cameras, resolutions, running
 
-    # Calculate display size
-    max_display_width = 1920
-    display_height = 540
-
-    scale = min(
-        (max_display_width / 2) / max(r[0] for r in resolutions),
-        display_height / max(r[1] for r in resolutions)
-    )
-
-    display_w = int(resolutions[0][0] * scale)
-    display_h = int(resolutions[0][1] * scale)
+    # Fixed display size (each camera panel)
+    display_w = 960
+    display_h = 540
 
     while running:
         frames = []
@@ -223,7 +279,7 @@ def generate_frames():
             if ret and frame is not None:
                 frame_resized = cv2.resize(frame, (display_w, display_h))
 
-                # Add camera label
+                # Add camera label with current resolution
                 label = f"Camera {i+1} ({resolutions[i][0]}x{resolutions[i][1]})"
                 cv2.putText(
                     frame_resized, label,
@@ -232,8 +288,7 @@ def generate_frames():
                 )
 
                 # Add center crosshair
-                h, w = frame_resized.shape[:2]
-                cx, cy = w // 2, h // 2
+                cx, cy = display_w // 2, display_h // 2
                 cv2.line(frame_resized, (cx - 30, cy), (cx + 30, cy), (0, 255, 0), 1)
                 cv2.line(frame_resized, (cx, cy - 30), (cx, cy + 30), (0, 255, 0), 1)
 
@@ -242,26 +297,27 @@ def generate_frames():
                 frames.append(np.zeros((display_h, display_w, 3), dtype=np.uint8))
 
         # Combine side by side
-        combined = cv2.hconcat(frames)
-        cv2.line(combined, (display_w, 0), (display_w, display_h), (255, 255, 255), 2)
+        if len(frames) >= 2:
+            combined = cv2.hconcat(frames[:2])
+            cv2.line(combined, (display_w, 0), (display_w, display_h), (255, 255, 255), 2)
 
-        # Encode as JPEG
-        _, buffer = cv2.imencode('.jpg', combined, [cv2.IMWRITE_JPEG_QUALITY, 80])
-        frame_bytes = buffer.tobytes()
+            # Encode as JPEG
+            _, buffer = cv2.imencode('.jpg', combined, [cv2.IMWRITE_JPEG_QUALITY, 80])
+            frame_bytes = buffer.tobytes()
 
-        yield (b'--frame\r\n'
-               b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+            yield (b'--frame\r\n'
+                   b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
 
         time.sleep(0.033)  # ~30 FPS
 
 
 @app.route('/')
 def index():
-    global resolutions
+    global max_resolutions
     return render_template_string(
         HTML_TEMPLATE,
-        res1=f"{resolutions[0][0]}x{resolutions[0][1]}" if len(resolutions) > 0 else "N/A",
-        res2=f"{resolutions[1][0]}x{resolutions[1][1]}" if len(resolutions) > 1 else "N/A"
+        max_res1=f"{max_resolutions[0][0]}x{max_resolutions[0][1]}" if len(max_resolutions) > 0 else "N/A",
+        max_res2=f"{max_resolutions[1][0]}x{max_resolutions[1][1]}" if len(max_resolutions) > 1 else "N/A"
     )
 
 
@@ -275,14 +331,31 @@ def stream():
 
 @app.route('/snapshot')
 def snapshot():
-    global cameras, snapshot_count
+    """Save snapshot at full resolution (temporarily switches if needed)."""
+    global cameras, snapshot_count, max_resolutions, full_res_mode, device_paths
 
     try:
+        # If in preview mode, capture at full res for snapshot
+        if not full_res_mode:
+            # Temporarily reinit at full res for snapshot
+            for i, cap in enumerate(cameras):
+                cap.set(cv2.CAP_PROP_FRAME_WIDTH, max_resolutions[i][0])
+                cap.set(cv2.CAP_PROP_FRAME_HEIGHT, max_resolutions[i][1])
+                # Flush buffer
+                for _ in range(5):
+                    cap.read()
+
         full_frames = []
         for cap in cameras:
             ret, frame = cap.read()
             if ret:
                 full_frames.append(frame)
+
+        # Restore preview resolution if we switched
+        if not full_res_mode:
+            for cap in cameras:
+                cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+                cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
 
         if len(full_frames) == 2:
             if full_frames[0].shape != full_frames[1].shape:
@@ -302,27 +375,69 @@ def snapshot():
         return {"success": False, "error": str(e)}
 
 
+@app.route('/toggle-resolution')
+def toggle_resolution():
+    """Toggle between preview (720p) and full resolution mode."""
+    global cameras, resolutions, full_res_mode, max_resolutions, capture_resolution
+
+    try:
+        full_res_mode = not full_res_mode
+
+        if full_res_mode:
+            # Switch to full resolution
+            for i, cap in enumerate(cameras):
+                cap.set(cv2.CAP_PROP_FRAME_WIDTH, max_resolutions[i][0])
+                cap.set(cv2.CAP_PROP_FRAME_HEIGHT, max_resolutions[i][1])
+                resolutions[i] = max_resolutions[i]
+            capture_resolution = max_resolutions[0]
+        else:
+            # Switch to preview resolution
+            for i, cap in enumerate(cameras):
+                cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+                cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+                resolutions[i] = (1280, 720)
+            capture_resolution = (1280, 720)
+
+        # Flush camera buffers
+        for cap in cameras:
+            for _ in range(10):
+                cap.read()
+
+        res_str = f"{capture_resolution[0]}x{capture_resolution[1]}"
+        return {"success": True, "full_res": full_res_mode, "resolution": res_str}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
 def init_cameras():
-    """Initialize cameras."""
-    global cameras, resolutions
+    """Initialize cameras at preview resolution (720p)."""
+    global cameras, resolutions, max_resolutions, device_paths
 
     print("=" * 60)
     print("Camera Alignment Tool (Web)")
     print("=" * 60)
     print("Discovering cameras...")
 
-    devices = discover_cameras()
+    device_paths = discover_cameras()
 
-    if len(devices) < 2:
-        print(f"ERROR: Found {len(devices)} cameras, need at least 2")
+    if len(device_paths) < 2:
+        print(f"ERROR: Found {len(device_paths)} cameras, need at least 2")
         sys.exit(1)
 
-    print(f"\nInitializing {len(devices)} cameras at max resolution...")
+    print(f"\nDetecting max resolutions...")
 
-    for i, device in enumerate(devices[:2]):
-        resolution = detect_max_resolution(device)
-        resolutions.append(resolution)
-        print(f"Camera {i+1}: {device} @ {resolution[0]}x{resolution[1]}")
+    # First detect max resolutions
+    for i, device in enumerate(device_paths[:2]):
+        max_res = detect_max_resolution(device)
+        max_resolutions.append(max_res)
+        print(f"Camera {i+1}: {device} max resolution {max_res[0]}x{max_res[1]}")
+
+    print(f"\nInitializing cameras at 720p preview mode...")
+
+    # Initialize at 720p for smooth preview
+    preview_res = (1280, 720)
+    for i, device in enumerate(device_paths[:2]):
+        resolutions.append(preview_res)
 
         device_id = int(device.replace('/dev/video', ''))
         cap = cv2.VideoCapture(device_id, cv2.CAP_V4L2)
@@ -332,8 +447,8 @@ def init_cameras():
             sys.exit(1)
 
         cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc('M', 'J', 'P', 'G'))
-        cap.set(cv2.CAP_PROP_FRAME_WIDTH, resolution[0])
-        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, resolution[1])
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, preview_res[0])
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, preview_res[1])
         cap.set(cv2.CAP_PROP_FPS, 30)
         cap.set(cv2.CAP_PROP_AUTOFOCUS, 1)
         cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 3)
@@ -345,6 +460,7 @@ def init_cameras():
             cap.read()
 
         cameras.append(cap)
+        print(f"Camera {i+1}: Ready at {preview_res[0]}x{preview_res[1]}")
 
     print("=" * 60)
 
